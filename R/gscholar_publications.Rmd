@@ -3,6 +3,8 @@ title: "Overview of Publications and Citations"
 author: "Anders Aasted Isaksen"
 date: "`r Sys.Date()`"
 output:
+  html_document:
+    df_print: paged
   pdf_document: default
 ---
 
