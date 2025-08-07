@@ -1,0 +1,149 @@
+---
+title: "Overview of Publications and Citations"
+author: "Anders Aasted Isaksen"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(scholar)
+library(data.table)
+library(ggplot2)
+```
+
+```{r gscholar, include=FALSE}
+
+# Change to your google scholar ID (e.g. copy/paste from web browser https://scholar.google.com/citations?user="YOUR ID HERE"&blabla)
+# E.g. for Anders Aasted Isaksen: (https://scholar.google.com/citations?user=nfh8etUAAAAJ)
+user_id <- "nfh8etUAAAAJ"
+
+profile <- get_profile(user_id)
+publications <- get_publications(id = user_id, sortby = "year")
+
+
+# Various filters and fixes after looking at the raw publication list
+# here using data.table, but edit to your own preference:
+setDT(publications)
+
+# Remove duplicates:
+publications <- publications[!duplicated(publications, by = c("author", "year"))]
+
+# Fix r-cubed paper entry where last author isn't shown:
+publications[14, 2] <- sub("\\.\\.\\.", "AA Isaksen", publications[14, 2])
+
+# Remove publications from conference abstracts based on the issue numbers and journal names:
+number_filter <- "*.SUPPL.|*.[Ss]uppl.*|*.S.*|^$"
+journal_filter <- "*.Abstract.*"
+
+filtered_pubs <- publications[grep(number_filter, number, invert = TRUE)][grep(journal_filter, journal, invert = TRUE)]
+
+
+# Calculate number of first and last authorships:
+
+# If all authors don't show up, try this (according to scholar package documentation):
+# authorlist_complete <- scholar::get_complete_authors(user_id, publications[grep(gscholar_filter, number, invert = TRUE)]$pubid)
+
+# But this seems to work fine for me:
+authorlist_complete <- filtered_pubs$author
+
+# Clean authorlist
+author <- scholar::get_profile(user_id)$name
+author_dt <- author_position(authorlist_complete, author)
+
+setDT(author_dt)
+
+# Extract metrics:
+n_pubs <- nrow(author_dt)
+n_first_author <- nrow(author_dt[Position == 1])
+n_last_author <- nrow(author_dt[Position != 1 & Position_Normalized == 1])
+n_citations <- sum(filtered_pubs$cites)
+
+# and H-index:
+calculate_h_index <- function(citations) {
+  browser()
+  sorted_citations <- sort(citations, decreasing = TRUE)
+  h_index <- sum(sorted_citations >= seq_along(sorted_citations))
+  return(h_index)
+}
+h_index <- calculate_h_index(filtered_pubs$cites)
+
+```
+
+## Metrics
+
+Number of publications: `r n_pubs`
+
+Number of first authorships: `r n_first_author`
+
+Number of last authorships: `r n_last_author`
+
+Total number of citations: `r n_citations`
+
+H-index: `r h_index`
+
+## Citation history
+
+```{r citeplot}
+
+## Get his citation history, i.e. citations to his work in a given year
+ct <- get_citation_history(user_id)
+
+## Plot citation trend
+
+cite_history <- ggplot(ct, aes(year, cites)) +
+  geom_col(width = 0.5, fill = "grey", colour = "black") +
+  labs(title = paste("Citations Per Year (until", Sys.Date(), ")"),
+       x = "Year",
+       y = "Number of Citations") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+    axis.title = element_text(face = "bold", size = 12),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank()
+    )
+
+plot(cite_history)
+```
+
+## Publication List
+
+```{r publist, results = "asis"}
+
+# Edit format function to allow filtering:
+format_publications_2 <- function(filtered_pubs, author.name) {
+  pubs <- filtered_pubs
+  pubs2 <- strsplit(pubs$author, split = ",")
+  pubs$author <- lapply(pubs2, function(x) {
+    x <- scholar:::swap_initials(x)
+    x[length(x)] <- paste0("& ", x[length(x)])
+    x <- paste0(x, collapse = ", ")
+    ifelse(startsWith(x, "& "), sub("& ", "", x), x)
+  })
+  author.name2 <- scholar:::swap_initials(author.name)
+  res <- dplyr::pull(dplyr::mutate(
+    dplyr::arrange(pubs, desc(.data$year)),
+    journal = paste0("*", .data$journal, "*"),
+    Publications = paste0(
+      .data$author,
+      " (",
+      .data$year,
+      "). ",
+      .data$title,
+      ". ",
+      .data$journal,
+      ". ",
+      .data$number
+    )
+  ),
+  .data$Publications)
+  if (is.null(author.name2))
+    return(res)
+  gsub(author.name2, paste0("**", author.name2, "**"), res)
+}
+
+# Format (Rmd code chunk should be set to results = "asis")
+format_publications_2(filtered_pubs, author.name = " AA Isaksen") |> cat(sep = '\n\n')
+```
